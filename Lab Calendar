@@ -1,0 +1,544 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nemeth Lab Calendar</title>
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.19/index.global.min.css">
+<script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.19/index.global.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+
+<style>
+:root {
+  --navy:#203c60;
+  --blue:#326c9c;
+  --background:#f5f7fa;
+  --border:#dfe5ec;
+  --text:#253347;
+  --muted:#66768b;
+}
+* { box-sizing:border-box; }
+body {
+  margin:0;
+  background:var(--background);
+  color:var(--text);
+  font-family:Arial,Helvetica,sans-serif;
+}
+header {
+  background:white;
+  border-bottom:1px solid var(--border);
+  padding:22px max(24px,5%);
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  flex-wrap:wrap;
+  gap:14px;
+}
+h1 { margin:0; color:var(--navy); font-size:25px; }
+h2 { color:var(--navy); }
+.subtitle { color:var(--muted); font-size:13px; margin-top:6px; }
+main { max-width:1250px; margin:30px auto; padding:0 20px; }
+.panel {
+  background:white;
+  border:1px solid var(--border);
+  border-radius:10px;
+  padding:24px;
+  margin-bottom:20px;
+}
+.toolbar {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  flex-wrap:wrap;
+  gap:12px;
+  margin-bottom:20px;
+}
+button {
+  cursor:pointer;
+  border:1px solid var(--border);
+  border-radius:6px;
+  background:white;
+  padding:10px 15px;
+  color:var(--navy);
+  font-weight:600;
+}
+button.primary {
+  background:var(--navy);
+  color:white;
+  border-color:var(--navy);
+}
+button.danger { color:#a83240; }
+button:disabled { opacity:.5; cursor:not-allowed; }
+input,select,textarea {
+  width:100%;
+  padding:11px;
+  border:1px solid #ccd5e0;
+  border-radius:6px;
+  background:white;
+  color:var(--text);
+  font:inherit;
+}
+label {
+  display:block;
+  font-size:13px;
+  font-weight:600;
+  margin:13px 0 6px;
+}
+textarea { min-height:85px; }
+.row { display:flex; gap:12px; }
+.row > div { flex:1; min-width:0; }
+.hidden { display:none!important; }
+.message { color:var(--muted); font-size:13px; }
+.legend {
+  display:flex;
+  flex-wrap:wrap;
+  gap:15px;
+  font-size:12px;
+  margin:15px 0;
+}
+.dot {
+  display:inline-block;
+  width:9px;
+  height:9px;
+  border-radius:50%;
+  margin-right:5px;
+}
+dialog {
+  width:min(95vw,550px);
+  border:1px solid var(--border);
+  border-radius:12px;
+  padding:26px;
+  box-shadow:0 20px 70px #1b2d4540;
+}
+dialog::backdrop { background:#15243c99; }
+.actions {
+  display:flex;
+  justify-content:flex-end;
+  gap:10px;
+  margin-top:20px;
+  flex-wrap:wrap;
+}
+#loginPanel { max-width:440px; margin:70px auto; }
+.fc .fc-button-primary {
+  background:var(--navy)!important;
+  border-color:var(--navy)!important;
+}
+.fc .fc-toolbar-title { font-size:20px!important; }
+.fc-event { cursor:pointer; }
+@media(max-width:650px) {
+  .row { flex-direction:column; gap:0; }
+  .fc .fc-toolbar { flex-direction:column; gap:12px; }
+  .panel { padding:14px; }
+}
+</style>
+</head>
+
+<body>
+<header>
+  <div>
+    <h1>Nemeth Lab Calendar</h1>
+    <div class="subtitle">Research scheduling and laboratory coordination</div>
+  </div>
+  <div id="accountArea" class="hidden">
+    <span id="userName"></span>
+    <button id="signOut">Sign Out</button>
+  </div>
+</header>
+
+<main>
+  <section id="loginPanel" class="panel">
+    <h2>Lab Member Sign In</h2>
+    <p class="message">Access is restricted to approved lab members.</p>
+    <form id="loginForm">
+      <label for="email">Email</label>
+      <input id="email" type="email" autocomplete="username" required>
+      <label for="password">Password</label>
+      <input id="password" type="password" autocomplete="current-password" required>
+      <div class="actions">
+        <button class="primary" type="submit" id="loginButton">Sign In</button>
+      </div>
+    </form>
+    <p id="loginMessage" class="message"></p>
+  </section>
+
+  <section id="dashboard" class="hidden">
+    <div class="panel">
+      <div class="toolbar">
+        <div>
+          <h2>Laboratory Schedule</h2>
+          <p class="message">Experiments, imaging, meetings, and research activities</p>
+        </div>
+        <div>
+          <button id="refresh">Refresh</button>
+          <button id="addEvent" class="primary">+ Add Event</button>
+        </div>
+      </div>
+      <label for="filter">Filter by activity</label>
+      <select id="filter">
+        <option value="">All activities</option>
+      </select>
+      <div id="legend" class="legend"></div>
+      <p id="calendarMessage" class="message"></p>
+      <div id="calendar"></div>
+    </div>
+  </section>
+</main>
+
+<dialog id="eventDialog">
+  <h2 id="dialogTitle">New Event</h2>
+  <form id="eventForm">
+    <input type="hidden" id="eventId">
+
+    <label for="eventTitle">Event title *</label>
+    <input id="eventTitle" maxlength="200" required>
+
+    <div class="row">
+      <div>
+        <label for="startTime">Start *</label>
+        <input id="startTime" type="datetime-local" required>
+      </div>
+      <div>
+        <label for="endTime">End *</label>
+        <input id="endTime" type="datetime-local" required>
+      </div>
+    </div>
+
+    <label for="category">Activity category</label>
+    <select id="category"></select>
+
+    <label for="project">Project name</label>
+    <input id="project" maxlength="160">
+
+    <label for="location">Location or equipment</label>
+    <input id="location" maxlength="160">
+
+    <label for="description">Notes</label>
+    <textarea id="description" maxlength="2000"></textarea>
+
+    <label>
+      <input id="allDay" type="checkbox" style="width:auto">
+      All-day event
+    </label>
+
+    <p id="eventMessage" class="message"></p>
+
+    <div class="actions">
+      <button id="deleteEvent" class="danger hidden" type="button">Delete</button>
+      <button id="cancelEvent" type="button">Cancel</button>
+      <button id="saveEvent" class="primary" type="submit">Save Event</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+const SUPABASE_URL = "https://wgaresywurnqhsjtoiek.supabase.co";
+const SUPABASE_KEY = "sb_publishable_eGLQNgOYO--LzMkOvRzJGA_0zCmEoDg";
+
+const colors = {
+  "IHC":"#3478b8",
+  "Imaging":"#198b83",
+  "Lab Meeting":"#7965a7",
+  "Data Analysis":"#d18b35",
+  "Tissue Preparation":"#b46b80",
+  "Equipment":"#567d9b",
+  "Other":"#7d8794"
+};
+
+const $ = id => document.getElementById(id);
+let db, user, member, calendar;
+let events = [];
+
+function notify(id,text) {
+  $(id).textContent = text || "";
+}
+function visible(id,yes) {
+  $(id).classList.toggle("hidden",!yes);
+}
+function localDate(value) {
+  const d = new Date(value);
+  const pad = n => String(n).padStart(2,"0");
+  return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+
+    pad(d.getDate())+"T"+pad(d.getHours())+":"+pad(d.getMinutes());
+}
+
+function buildCategories() {
+  for(const [name,color] of Object.entries(colors)) {
+    const opt = document.createElement("option");
+    opt.value = name;
+    opt.textContent = name;
+    $("category").append(opt);
+    $("filter").append(opt.cloneNode(true));
+
+    const item = document.createElement("span");
+    const dot = document.createElement("span");
+    dot.className = "dot";
+    dot.style.background = color;
+    item.append(dot,document.createTextNode(name));
+    $("legend").append(item);
+  }
+}
+
+function makeCalendar() {
+  calendar = new FullCalendar.Calendar($("calendar"),{
+    initialView:"dayGridMonth",
+    height:"auto",
+    selectable:true,
+    headerToolbar:{
+      left:"prev,next today",
+      center:"title",
+      right:"dayGridMonth,timeGridWeek,timeGridDay,listMonth"
+    },
+    buttonText:{
+      month:"Month",week:"Week",day:"Day",list:"Agenda"
+    },
+    dateClick:info => openNew(info.date),
+    select:info => openNew(info.start,info.end),
+    eventClick:info => openExisting(info.event.id)
+  });
+  calendar.render();
+}
+
+async function showLogin(message="") {
+  user = null;
+  member = null;
+  events = [];
+  if(calendar) calendar.removeAllEvents();
+  visible("dashboard",false);
+  visible("accountArea",false);
+  visible("loginPanel",true);
+  notify("loginMessage",message);
+}
+
+async function checkLogin() {
+  const {data,error} = await db.auth.getUser();
+  if(error || !data.user) {
+    showLogin();
+    return;
+  }
+  user = data.user;
+
+  const result = await db.from("lab_members")
+    .select("user_id,display_name,role")
+    .eq("user_id",user.id)
+    .maybeSingle();
+
+  if(result.error || !result.data) {
+    await db.auth.signOut();
+    showLogin("Your account has not been approved for this calendar.");
+    return;
+  }
+
+  member = result.data;
+  $("userName").textContent =
+    member.display_name+" ("+member.role+")";
+
+  visible("loginPanel",false);
+  visible("dashboard",true);
+  visible("accountArea",true);
+
+  if(!calendar) makeCalendar();
+  calendar.updateSize();
+  await loadEvents();
+}
+
+async function loadEvents() {
+  notify("calendarMessage","Loading events...");
+  const {data,error} = await db.from("events")
+    .select("*")
+    .order("start_time",{ascending:true})
+    .limit(5000);
+
+  if(error) {
+    notify("calendarMessage",error.message);
+    return;
+  }
+
+  events = data || [];
+  renderEvents();
+  notify("calendarMessage","");
+}
+
+function renderEvents() {
+  calendar.removeAllEvents();
+  const filter = $("filter").value;
+
+  for(const e of events) {
+    if(filter && e.category !== filter) continue;
+    calendar.addEvent({
+      id:e.id,
+      title:e.title,
+      start:e.start_time,
+      end:e.end_time,
+      allDay:e.all_day,
+      backgroundColor:colors[e.category] || colors.Other,
+      borderColor:"transparent"
+    });
+  }
+}
+
+function openNew(start=new Date(),end=null) {
+  $("eventForm").reset();
+  $("eventId").value = "";
+  $("dialogTitle").textContent = "New Event";
+  notify("eventMessage","");
+  $("startTime").value = localDate(start);
+  $("endTime").value = localDate(
+    end || new Date(new Date(start).getTime()+3600000)
+  );
+  $("category").value = "Other";
+  setEditable(true);
+  visible("deleteEvent",false);
+  $("eventDialog").showModal();
+}
+
+function setEditable(allowed) {
+  for(const field of $("eventForm").querySelectorAll(
+    "input:not([type=hidden]),select,textarea"
+  )) field.disabled = !allowed;
+  visible("saveEvent",allowed);
+}
+
+function openExisting(id) {
+  const e = events.find(item => item.id === id);
+  if(!e) return;
+
+  $("eventForm").reset();
+  $("eventId").value = e.id;
+  $("dialogTitle").textContent = "Event Details";
+  $("eventTitle").value = e.title;
+  $("startTime").value = localDate(e.start_time);
+  $("endTime").value = localDate(e.end_time);
+  $("category").value = e.category;
+  $("project").value = e.project_name || "";
+  $("location").value = e.location || "";
+  $("description").value = e.description || "";
+  $("allDay").checked = e.all_day;
+
+  const allowed =
+    e.created_by === user.id || member.role === "admin";
+
+  setEditable(allowed);
+  visible("deleteEvent",allowed);
+  notify("eventMessage",allowed ? "" :
+    "View only: you cannot edit another member's event.");
+  $("eventDialog").showModal();
+}
+
+async function saveEvent(event) {
+  event.preventDefault();
+  const id = $("eventId").value;
+
+  const payload = {
+    title:$("eventTitle").value.trim(),
+    start_time:new Date($("startTime").value).toISOString(),
+    end_time:new Date($("endTime").value).toISOString(),
+    category:$("category").value,
+    project_name:$("project").value.trim(),
+    location:$("location").value.trim(),
+    description:$("description").value.trim(),
+    all_day:$("allDay").checked
+  };
+
+  if(new Date(payload.end_time) <= new Date(payload.start_time)) {
+    notify("eventMessage","End time must be after start time.");
+    return;
+  }
+
+  $("saveEvent").disabled = true;
+  let result;
+
+  if(id) {
+    result = await db.from("events")
+      .update(payload).eq("id",id).select("id");
+  } else {
+    result = await db.from("events")
+      .insert({...payload,created_by:user.id}).select("id");
+  }
+
+  $("saveEvent").disabled = false;
+
+  if(result.error || !result.data?.length) {
+    notify("eventMessage",
+      result.error?.message || "Event could not be saved.");
+    return;
+  }
+
+  $("eventDialog").close();
+  await loadEvents();
+}
+
+async function deleteEvent() {
+  const id = $("eventId").value;
+  if(!id || !confirm("Permanently delete this event?")) return;
+
+  const {data,error} = await db.from("events")
+    .delete().eq("id",id).select("id");
+
+  if(error || !data?.length) {
+    notify("eventMessage",error?.message || "Delete failed.");
+    return;
+  }
+
+  $("eventDialog").close();
+  await loadEvents();
+}
+
+async function start() {
+  buildCategories();
+
+  $("loginForm").addEventListener("submit",async e => {
+    e.preventDefault();
+    $("loginButton").disabled = true;
+    notify("loginMessage","Signing in...");
+
+    const {error} = await db.auth.signInWithPassword({
+      email:$("email").value.trim(),
+      password:$("password").value
+    });
+
+    $("loginButton").disabled = false;
+
+    if(error) {
+      notify("loginMessage",error.message);
+      return;
+    }
+
+    $("password").value = "";
+    await checkLogin();
+  });
+
+  $("signOut").onclick = async () => {
+    await db.auth.signOut();
+    showLogin();
+  };
+
+  $("refresh").onclick = loadEvents;
+  $("filter").onchange = renderEvents;
+  $("addEvent").onclick = () => openNew();
+  $("cancelEvent").onclick = () => $("eventDialog").close();
+  $("eventForm").onsubmit = saveEvent;
+  $("deleteEvent").onclick = deleteEvent;
+
+  if(SUPABASE_URL.startsWith("PASTE_") ||
+     SUPABASE_KEY.startsWith("PASTE_")) {
+    notify("loginMessage",
+      "Setup needed: add your Supabase project URL and publishable key.");
+    return;
+  }
+
+  if(!window.supabase || !window.FullCalendar) {
+    notify("loginMessage",
+      "Required libraries did not load. Check your connection.");
+    return;
+  }
+
+  db = window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+  await checkLogin();
+}
+
+start();
+</script>
+</body>
+</html>
